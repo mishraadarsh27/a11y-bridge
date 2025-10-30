@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+numpy
+opencv-python
+mediapipe
+torch
+onnxruntime
+transformers
+sentencepiece
+ctransformers
+vosk
+pyttsx3
+scikit-learn
