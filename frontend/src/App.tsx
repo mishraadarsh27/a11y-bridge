@@ -1,4 +1,81 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { Logo } from './Logo'
+
+function TranslateWidget() {
+  const [text, setText] = useState('Hello, how are you?')
+  const [source, setSource] = useState('auto')
+  const [target, setTarget] = useState('hi')
+  const [model, setModel] = useState('llama3.2:latest')
+  const [out, setOut] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const langs = [
+    { code: 'auto', name: 'Auto-detect' },
+    { code: 'en', name: 'English' },
+    { code: 'hi', name: 'Hindi' },
+    { code: 'ur', name: 'Urdu' },
+    { code: 'pa', name: 'Punjabi' },
+    { code: 'bn', name: 'Bengali' },
+    { code: 'ta', name: 'Tamil' },
+    { code: 'te', name: 'Telugu' },
+    { code: 'mr', name: 'Marathi' },
+    { code: 'gu', name: 'Gujarati' },
+    { code: 'kn', name: 'Kannada' },
+    { code: 'ml', name: 'Malayalam' },
+    { code: 'es', name: 'Spanish' },
+    { code: 'fr', name: 'French' },
+    { code: 'de', name: 'German' },
+    { code: 'ar', name: 'Arabic' },
+    { code: 'zh', name: 'Chinese' },
+    { code: 'ja', name: 'Japanese' },
+    { code: 'ko', name: 'Korean' },
+  ]
+
+  const doTranslate = async () => {
+    setLoading(true)
+    setError(null)
+    setOut('')
+    try {
+      const res = await fetch('/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, source_lang: source, target_lang: target, model }),
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data = await res.json()
+      setOut(data?.translated ?? '')
+    } catch (e: any) {
+      setError(e?.message || 'Failed to translate')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="section" style={{ display: 'grid', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <select className="select" value={source} onChange={(e) => setSource(e.target.value)}>
+          {langs.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+        </select>
+        <span className="small" aria-hidden>→</span>
+        <select className="select" value={target} onChange={(e) => setTarget(e.target.value)}>
+          {langs.filter(l => l.code !== 'auto').map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+        </select>
+        <input className="input" style={{ minWidth: 160 }} value={model} onChange={(e) => setModel(e.target.value)} placeholder="Model (e.g., llama3.2:latest)" />
+        <button className="button primary" onClick={doTranslate} disabled={loading}>
+          {loading ? 'Translating…' : 'Translate'}
+        </button>
+      </div>
+      <textarea className="input" rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Enter text" />
+      {error && <div className="small" style={{ color: '#ef4444' }}>Error: {error}</div>}
+      <div className="section" style={{ background: 'var(--panel)', padding: 8, borderRadius: 6 }}>
+        <div className="small" style={{ opacity: 0.8 }}>Output</div>
+        <div aria-live="polite">{out || <span className="small" style={{ opacity: 0.6 }}>(translation will appear here)</span>}</div>
+      </div>
+    </div>
+  )
+}
 
 function useWebSocket(url: string | null) {
   const wsRef = useRef<WebSocket | null>(null)
@@ -6,49 +83,232 @@ function useWebSocket(url: string | null) {
   const [status, setStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected')
 
   useEffect(() => {
-    if (!url) return
+    console.log('WebSocket: useEffect triggered, url =', url)
+    if (!url) {
+      console.log('WebSocket: URL is null, not connecting')
+      return
+    }
+    console.log('WebSocket: Connecting to', url)
     setStatus('connecting')
     const ws = new WebSocket(url)
     wsRef.current = ws
 
-    ws.onopen = () => setStatus('connected')
-    ws.onmessage = (evt) => setMessages((m) => [...m, String(evt.data)])
-    ws.onerror = () => setStatus('disconnected')
-    ws.onclose = () => setStatus('disconnected')
+    ws.onopen = () => {
+      console.log('WebSocket: Connected!')
+      setStatus('connected')
+      // Probe backend identity
+      setTimeout(() => {
+        try {
+          if (ws.readyState === WebSocket.OPEN) {
+            console.log('WebSocket: Sending health check')
+            ws.send(JSON.stringify({ type: 'health' }))
+          }
+        } catch (e) {
+          console.error('WebSocket: Failed to send health', e)
+        }
+      }, 100)
+
+      // Keep-alive ping every 30 seconds
+      const pingInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          try {
+            ws.send(JSON.stringify({ type: 'health' }))
+          } catch {}
+        } else {
+          clearInterval(pingInterval)
+        }
+      }, 30000)
+
+      // Clear interval on close
+      ws.addEventListener('close', () => clearInterval(pingInterval))
+    }
+    ws.onmessage = (evt) => {
+      console.log('WebSocket: Message received:', evt.data)
+      setMessages((m) => [...m, String(evt.data)])
+    }
+    ws.onerror = (err) => {
+      console.error('WebSocket: Error', err)
+      setStatus('disconnected')
+    }
+    ws.onclose = (evt) => {
+      console.log('WebSocket: Closed', evt.code, evt.reason)
+      setStatus('disconnected')
+    }
 
     return () => {
-      ws.close()
+      console.log('WebSocket: Cleanup - closing connection')
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close()
+      }
       wsRef.current = null
     }
   }, [url])
 
   const send = (text: string) => wsRef.current?.readyState === WebSocket.OPEN && wsRef.current.send(text)
 
-  return { messages, status, send }
+  return { messages, status, send, wsRef }
 }
+
+function SignStatus({ messages }: { messages: string[] }) {
+  const [numHands, setNumHands] = useState<number>(0)
+  const [gestures, setGestures] = useState<string[]>([])
+  const [handsInfo, setHandsInfo] = useState<Array<{label?: string; score?: number | null}>>([])
+  const [sign, setSign] = useState<{ id?: number | null; label?: string; score?: number | null } | null>(null)
+  const [labelMap, setLabelMap] = useState<string[]>(() => {
+    try {
+      const savedRaw = localStorage.getItem('sign_labels')
+      if (savedRaw) {
+        const saved = JSON.parse(savedRaw)
+        if (Array.isArray(saved)) {
+          // sanitize and cap length
+          return saved.map((x) => String(x ?? '')).slice(0, 64)
+        }
+      }
+    } catch {}
+    // Default mapping requested: 1->yes, 2->no, 3..28->A..Z
+    const arr = new Array(64).fill('') as string[]
+    arr[1] = 'yes'
+    arr[2] = 'no'
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+    for (let i = 0; i < 26; i++) arr[3 + i] = letters[i]
+    try { localStorage.setItem('sign_labels', JSON.stringify(arr)) } catch {}
+    return arr
+  })
+  const [error, setError] = useState<string | null>(null)
+
+  const editLabels = () => {
+    const raw = window.prompt('Enter labels as JSON array or newline-separated (index -> label)')
+    if (!raw) return
+    let arr: string[] = []
+    try {
+      const j = JSON.parse(raw)
+      if (Array.isArray(j)) arr = j.map((x) => String(x))
+    } catch {
+      arr = raw.split(/\r?\n|,/).map((s) => s.trim()).filter(Boolean)
+    }
+    setLabelMap(arr)
+    try { localStorage.setItem('sign_labels', JSON.stringify(arr)) } catch {}
+  }
+
+  useEffect(() => {
+    if (!messages.length) return
+    const last = messages[messages.length - 1]
+    try {
+      const j = JSON.parse(last)
+      if (j?.type === 'sign_status') {
+        setNumHands(Number(j?.payload?.num_hands || 0))
+        setGestures(Array.isArray(j?.payload?.gestures) ? j.payload.gestures : [])
+        setHandsInfo(Array.isArray(j?.payload?.hands) ? j.payload.hands : [])
+        setError(typeof j?.payload?.error === 'string' ? j.payload.error : null)
+        if (j?.payload?.sign) {
+          const s = j.payload.sign
+          let label: string | undefined = s?.label
+          const id: number | undefined = typeof s?.id === 'number' ? s.id : (typeof label === 'string' && /^\d+$/.test(label) ? parseInt(label, 10) : undefined)
+          if (id != null && labelMap[id]) label = labelMap[id]
+          setSign({ id: id ?? null, label, score: typeof s?.score === 'number' ? s.score : null })
+        }
+      }
+    } catch {}
+  }, [messages, labelMap])
+
+  return (
+    <div style={{ padding: 8, border: '1px solid #ccc', borderRadius: 8, minWidth: 200 }}>
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Hand Detection</div>
+      <div>Hands: <b>{numHands}</b></div>
+      <div style={{ marginTop: 6 }}>
+        <span style={{
+          display: 'inline-block',
+          width: 10, height: 10, borderRadius: 9999,
+          background: numHands > 0 ? '#16a34a' : '#ef4444'
+        }} /> {numHands > 0 ? 'Detected' : 'No hands'}
+      </div>
+      {sign?.label && (
+        <div className="small" style={{ marginTop: 6 }}>
+          Sign: <b>{sign.label}</b>{typeof sign.score === 'number' ? ` (${sign.score.toFixed(2)})` : ''}{typeof sign.id === 'number' ? ` [id: ${sign.id}]` : ''}
+        </div>
+      )}
+      {handsInfo.length > 0 && (
+        <div className="small" style={{ marginTop: 6 }}>
+          {handsInfo.map((h, i) => <div key={i}>{h.label} {h.score != null ? `(${h.score.toFixed(2)})` : ''}</div>)}
+        </div>
+      )}
+      {gestures.length > 0 && (
+        <div className="small" style={{ marginTop: 6 }}>Gestures: {gestures.join(', ')}</div>
+      )}
+      <div className="small" style={{ marginTop: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button className="button" onClick={editLabels} style={{ height: 26, padding: '0 8px' }}>Set Labels</button>
+        <button className="button" onClick={() => {
+          try { localStorage.removeItem('sign_labels') } catch {}
+          // force default mapping
+          const arr = new Array(64).fill('') as string[]
+          arr[1] = 'yes'; arr[2] = 'no'
+          const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+          for (let i = 0; i < 26; i++) arr[3 + i] = letters[i]
+          setLabelMap(arr)
+          try { localStorage.setItem('sign_labels', JSON.stringify(arr)) } catch {}
+        }} style={{ height: 26, padding: '0 8px' }}>Reset Labels</button>
+        {labelMap.length > 0 && <span>labels: {labelMap.length}</span>}
+      </div>
+      {error && (
+        <div className="small" style={{ marginTop: 6, color: '#ef4444' }}>Error: {error}</div>
+      )}
+    </div>
+  )
+}
+
+type Theme = 'system' | 'light' | 'dark'
 
 export function App() {
   const [input, setInput] = useState('hello')
-  const [connected, setConnected] = useState(true) // auto-connect on load
+  const [connected, setConnected] = useState(false) // manually connect
   const [lang, setLang] = useState('en-US')
-  const url = connected ? `ws://${location.hostname}:8000/ws` : null
-  const { messages, status, send } = useWebSocket(url)
+  // Build WS URL dynamically so it works via Vite proxy in dev and same-origin in prod
+  const wsBase = 'ws://127.0.0.1:8000' // Direct backend connection
+  // Force Sign-MNIST letter pipeline by default (A–Y static letters)
+  const url = connected ? `${wsBase}/ws?sign_model=signmnist` : null
+  const { messages, status, send, wsRef } = useWebSocket(url)
 
-  // Browser TTS
+  // Theme management
+  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('theme') as Theme) || 'system')
+  useEffect(() => {
+    const root = document.documentElement
+    const meta = document.querySelector('meta[name="color-scheme"]') as HTMLMetaElement | null
+    if (theme === 'system') {
+      root.removeAttribute('data-theme')
+      if (meta) meta.content = 'light dark'
+    } else {
+      root.setAttribute('data-theme', theme)
+      if (meta) meta.content = theme
+    }
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  // Browser TTS (with anti-loop gating)
+  const [isSpeaking, setIsSpeaking] = useState(false)
   const speak = (text: string) => {
     const u = new SpeechSynthesisUtterance(text)
     u.lang = lang
+    u.onstart = () => setIsSpeaking(true)
+    u.onend = () => setIsSpeaking(false)
+    u.onerror = () => setIsSpeaking(false)
     window.speechSynthesis.speak(u)
     // notify backend for logging/ack
     send(JSON.stringify({ type: 'tts_text', payload: { text } }))
   }
 
-  // Browser STT (Chrome: webkitSpeechRecognition)
+  // Browser STT (Chrome/Edge: Web Speech API)
   const recRef = useRef<any>(null)
-  const sttSupported = typeof (window as any).webkitSpeechRecognition !== 'undefined'
+  const sttSupported = typeof (window as any).SpeechRecognition !== 'undefined' || typeof (window as any).webkitSpeechRecognition !== 'undefined'
+  const [autoSpeak, setAutoSpeak] = useState<boolean>(false)
+  const [autoSpeakSign, setAutoSpeakSign] = useState<boolean>(false)
+  const signHistRef = useRef<Array<{ label: string; score: number; t: number }>>([])
+  const lastSpokenSignRef = useRef<string | null>(null)
+  const lastSpokenAtRef = useRef<number>(0)
   const startSTT = () => {
     if (!sttSupported) return
-    const Rec = (window as any).webkitSpeechRecognition
+    // stop any previous session
+    recRef.current?.stop?.()
+    const Rec = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
     const rec = new Rec()
     rec.continuous = true
     rec.interimResults = true
@@ -58,7 +318,10 @@ export function App() {
         const res = e.results[i]
         if (res.isFinal) {
           const txt = res[0].transcript.trim()
+          // Ignore results while our own TTS is speaking to avoid feedback loops
+          if (isSpeaking) continue
           send(JSON.stringify({ type: 'stt_result', payload: { text: txt } }))
+          if (autoSpeak && txt) speak(txt)
         }
       }
     }
@@ -70,60 +333,217 @@ export function App() {
     recRef.current = null
   }
 
-  return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, lineHeight: 1.5 }}>
-      <h1>A11y Bridge</h1>
-      <p>Status: <b>{status}</b></p>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
-        <button onClick={() => setConnected((v) => !v)}>
-          {connected ? 'Disconnect' : 'Connect'}
-        </button>
-        <label>
-          Lang:
-          <select value={lang} onChange={(e) => setLang(e.target.value)} style={{ marginLeft: 4 }}>
-            <option value="en-US">en-US</option>
-            <option value="en-GB">en-GB</option>
-          </select>
-        </label>
-      </div>
+  // Sign capture (camera -> WS frames)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const [camOn, setCamOn] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [collecting, setCollecting] = useState(false)
+  const [collectLabel, setCollectLabel] = useState('A')
+  const captureInterval = useRef<number | null>(null)
 
-      <h2>Text ➜ WS / Voice</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a message"
-        />
-        <button
-          onClick={() => send(JSON.stringify({ type: 'text', payload: { text: input } }))}
-          disabled={status !== 'connected'}
-        >
-          Send WS
-        </button>
-        <button onClick={() => speak(input)}>
-          Speak
-        </button>
-      </div>
+  useEffect(() => {
+    if (!camOn) return
+    const startCam = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 }, audio: false })
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+          await videoRef.current.play()
+        }
+      } catch (e) {
+        console.error('Camera error', e)
+        setCamOn(false)
+      }
+    }
+    startCam()
+    return () => {
+      const v = videoRef.current
+      const s = v && (v.srcObject as MediaStream | null)
+      s?.getTracks().forEach((t) => t.stop())
+      if (v) v.srcObject = null
+    }
+  }, [camOn])
 
-      <h2>Voice ➜ Text (browser STT)</h2>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button onClick={startSTT} disabled={!sttSupported}>Start Mic</button>
-        <button onClick={stopSTT}>Stop Mic</button>
-        {!sttSupported && <span>STT not supported in this browser</span>}
-      </div>
+  const startSending = () => {
+    if (!videoRef.current || !canvasRef.current) return
+    const vid = videoRef.current
+    const cvs = canvasRef.current
+    cvs.width = vid.videoWidth || 640
+    cvs.height = vid.videoHeight || 480
+    const ctx = cvs.getContext('2d')!
+    setSending(true)
+    captureInterval.current = window.setInterval(() => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return
+      ctx.drawImage(vid, 0, 0, cvs.width, cvs.height)
+      const dataUrl = cvs.toDataURL('image/jpeg', 0.8)
+      try {
+        const payload: any = { image: dataUrl }
+        if (collecting && collectLabel.trim()) payload.collect = { label: collectLabel.trim() }
+        wsRef.current.send(JSON.stringify({ type: 'sign_frame', payload }))
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('WS send error', e)
+      }
+    }, 150)
+  }
+  const stopSending = () => {
+    if (captureInterval.current) window.clearInterval(captureInterval.current)
+    captureInterval.current = null
+    setSending(false)
+  }
 
-      <h2>Messages</h2>
-      <ul>
-        {messages.map((m, i) => {
-          try {
-            const j = JSON.parse(m)
-            if (j?.payload?.text) return <li key={i}>{j.type}: {j.payload.text}</li>
-            return <li key={i}>{j.type ?? 'msg'}: {JSON.stringify(j.payload ?? {})}</li>
-          } catch {
-            return <li key={i}>{m}</li>
+  // Auto-start sending when camera is on and WS is connected
+  useEffect(() => {
+    if (camOn && status === 'connected' && !sending) {
+      startSending()
+    }
+  }, [camOn, status, sending])
+
+  // Auto TTS for recognized signs with smoothing
+  useEffect(() => {
+    if (!messages.length) return
+    const raw = messages[messages.length - 1]
+    try {
+      const j = JSON.parse(typeof raw === 'string' && raw.startsWith('echo:') ? raw.slice(5) : raw)
+      if (j?.type === 'sign_status' && j?.payload?.sign) {
+        const label = String(j.payload.sign.label ?? '')
+        const score = typeof j.payload.sign.score === 'number' ? j.payload.sign.score : 0
+        if (!label || label === 'unknown' || score < 0.5) return
+        const now = Date.now()
+        signHistRef.current.push({ label, score, t: now })
+        if (signHistRef.current.length > 24) signHistRef.current.shift()
+        // compute stable label from last 8 samples with score>=0.6
+        const recent = signHistRef.current.slice(-8).filter((x) => x.score >= 0.6)
+        const counts: Record<string, number> = {}
+        for (const r of recent) counts[r.label] = (counts[r.label] || 0) + 1
+        let stable: string | null = null
+        let maxc = 0
+        for (const [k, v] of Object.entries(counts)) { if (v > maxc) { maxc = v; stable = k } }
+        if (stable && maxc >= 3 && autoSpeakSign && !isSpeaking) {
+          const since = now - (lastSpokenAtRef.current || 0)
+          if (stable !== lastSpokenSignRef.current || since > 1500) {
+            speak(stable)
+            lastSpokenSignRef.current = stable
+            lastSpokenAtRef.current = now
           }
-        })}
-      </ul>
+        }
+      }
+    } catch {}
+  }, [messages, autoSpeakSign, isSpeaking])
+
+  return (
+    <div className="container" style={{ fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 }}>
+      <div className="header">
+        <div className="brand">
+          <Logo />
+          <h1>VaaniSetu (CommuniBridge)</h1>
+        </div>
+        <div className="right">
+          <div className="segmented" role="group" aria-label="Theme">
+            <button className={theme === 'system' ? 'active' : ''} onClick={() => setTheme('system')}>Sys</button>
+            <button className={theme === 'light' ? 'active' : ''} onClick={() => setTheme('light')}>Light</button>
+            <button className={theme === 'dark' ? 'active' : ''} onClick={() => setTheme('dark')}>Dark</button>
+          </div>
+          <span className={`badge ${status === 'connected' ? 'ok' : 'err'}`}>{status}</span>
+          <select className="select" value={lang} onChange={(e) => setLang(e.target.value)}>
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="hi-IN">Hindi (hi-IN)</option>
+            <option value="bn-IN">Bengali (bn-IN)</option>
+            <option value="ta-IN">Tamil (ta-IN)</option>
+            <option value="te-IN">Telugu (te-IN)</option>
+            <option value="mr-IN">Marathi (mr-IN)</option>
+            <option value="gu-IN">Gujarati (gu-IN)</option>
+            <option value="kn-IN">Kannada (kn-IN)</option>
+            <option value="pa-IN">Punjabi (pa-IN)</option>
+            <option value="ml-IN">Malayalam (ml-IN)</option>
+            <option value="or-IN">Odia (or-IN)</option>
+          </select>
+          <button className="button" onClick={() => {
+            console.log('Button clicked, connected was:', connected)
+            setConnected((v) => !v)
+          }}>
+            {connected ? 'Disconnect' : 'Connect'}
+          </button>
+        </div>
+      </div>
+
+      <div className="grid">
+        {/* Sign Panel */}
+        <div className="panel">
+          <h2>Sign</h2>
+          <div className="section">
+            <button className="button" onClick={() => setCamOn((v) => !v)}>{camOn ? 'Stop Camera' : 'Start Camera'}</button>
+            <button className="button primary" onClick={sending ? stopSending : startSending} disabled={!camOn || status !== 'connected'}>
+              {sending ? 'Stop Sending' : 'Start Sending'}
+            </button>
+          </div>
+          <div className="section" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input className="input" style={{ width: 80 }} value={collectLabel} onChange={(e) => setCollectLabel(e.target.value)} placeholder="Label" />
+            <button className="button" onClick={() => setCollecting((v) => !v)} disabled={!camOn || status !== 'connected'}>{collecting ? 'Stop Collect' : 'Start Collect'}</button>
+            <button className="button" onClick={async () => { try { await fetch('/sign/static_train', { method: 'POST' }) } catch {} }}>Train Static</button>
+          </div>
+          <video ref={videoRef} className="video" muted playsInline></video>
+          <div style={{ marginTop: 8 }}>
+            <SignStatus messages={messages} />
+          </div>
+          <canvas ref={canvasRef} style={{ display: 'none' }} />
+        </div>
+
+        {/* Voice Panel */}
+        <div className="panel">
+          <h2>Voice</h2>
+          <div className="section">
+            <button className="button" onClick={startSTT} disabled={!sttSupported}>Start Mic</button>
+            <button className="button" onClick={stopSTT}>Stop Mic</button>
+            {!sttSupported && <span className="small">STT not supported in this browser</span>}
+          </div>
+          <div className="section" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <label className="small" htmlFor="auto-speak">
+              <input id="auto-speak" type="checkbox" checked={autoSpeak} onChange={(e) => setAutoSpeak(e.target.checked)} /> Auto-speak STT
+            </label>
+            <label className="small" htmlFor="auto-speak-sign">
+              <input id="auto-speak-sign" type="checkbox" checked={autoSpeakSign} onChange={(e) => setAutoSpeakSign(e.target.checked)} /> Auto-speak Sign
+            </label>
+          </div>
+          <div className="section">
+            <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Text to speak" />
+            <button className="button" onClick={() => speak(input)}>Speak</button>
+          </div>
+        </div>
+
+        {/* Text Panel */}
+        <div className="panel">
+          <h2>Text</h2>
+          <div className="section">
+            <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Type a message" />
+            <button className="button primary" onClick={() => send(JSON.stringify({ type: 'text', payload: { text: input } }))} disabled={status !== 'connected'}>
+              Send
+            </button>
+          </div>
+          <div className="scroll">
+            {messages.map((m, i) => {
+              try {
+                let raw = m
+                // Handle servers that prefix with 'echo:' and then JSON
+                if (typeof raw === 'string' && raw.startsWith('echo:')) raw = raw.slice(5)
+                const j = JSON.parse(raw)
+                const label = j?.type ?? 'msg'
+                const body = j?.payload?.text ? j.payload.text : JSON.stringify(j.payload ?? {})
+                return <div className="log-item" key={i}><b>{label}:</b> {body}</div>
+              } catch {
+                return <div className="log-item" key={i}>{m}</div>
+              }
+            })}
+          </div>
+        </div>
+
+        {/* Translate Panel (LLM via Ollama) */}
+        <div className="panel">
+          <h2>Translate (LLM)</h2>
+          <TranslateWidget />
+        </div>
+      </div>
     </div>
-  )
-}
+  )}

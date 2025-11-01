@@ -1,4 +1,4 @@
-# A11y Bridge – Detailed Roadmap
+# VaaniSetu (CommuniBridge) – Detailed Roadmap
 
 Goal: A CPU-only, multilingual, bidirectional communication bridge (Sign/Text/Voice in any direction), real-time, free/open-source, privacy-first.
 

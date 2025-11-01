@@ -1,4 +1,4 @@
-# A11y Bridge
+# VaaniSetu (CommuniBridge): A hybrid bidirectional communication model using ResNet18 and LSTM
 
 A multilingual, real-time, bidirectional communication bridge enabling deaf, hard-of-hearing, non-verbal, and blind users to communicate with everyone. It supports:
 - Sign ➜ Text, Sign ➜ Voice

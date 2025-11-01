@@ -60,10 +60,38 @@ models/**/*.pt
 models/**/*.onnx
 models/**/*.bin
 models/**/*.safetensors
+models/**/*.h5
 !models/**/README.md
 
 data/**
 !data/**/README.md
+
+# Large datasets and videos
+datasets/**/*.mp4
+datasets/**/*.avi
+datasets/**/*.mov
+datasets/**/*.csv
+datasets/**/*.json
+!datasets/**/README.md
+
+# Temporary files
+tmp/**
+!tmp/**/README.md
+
+# Sign language training data
+backend/data/signmnist/*.csv
+backend/datasets/wlasl/*.mp4
+backend/datasets/wlasl/*.json
+backend/sign/**/*.npy
+
+# Frontend datasets
+frontend/videos/**
+frontend/data/**
+frontend/*.json
+frontend/*.txt
+!frontend/package.json
+!frontend/tsconfig.json
+!frontend/vite.config.ts
 
 # Misc
 *.swp

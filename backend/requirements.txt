@@ -11,3 +11,4 @@ ctransformers
 vosk
 pyttsx3
 scikit-learn
+tensorflow
