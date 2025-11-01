@@ -1,3 +1,39 @@
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Python
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+
+# Env files
+*.env
+*.env.*
+frontend/.env.local
+frontend/.env.development
+frontend/.env.production.local
+
+# Data/Models (large)
+data/
+models/
+backend/datasets/
+backend/tmp/
+
+# OS/Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Build artifacts
+*.egg-info/
+
 # OS
 .DS_Store
 Thumbs.db

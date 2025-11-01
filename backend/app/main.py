@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import json
 import os
 from typing import Any, Literal, Optional
@@ -40,10 +42,15 @@ STATIC_LABELS: Optional[list[str]] = None
 
 app = FastAPI(title="VaaniSetu (CommuniBridge) Backend", version="0.1.0")
 
-# Allow local frontend dev server
+# Allow local frontend dev server and configurable production origins via env
+_DEFAULT_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
+_ENV_ORIGINS = os.getenv("ALLOW_ORIGINS", "")
+_ALLOW_ORIGINS = [
+    o.strip() for o in _ENV_ORIGINS.split(",") if o.strip()
+] or _DEFAULT_ORIGINS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=_ALLOW_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -426,7 +433,7 @@ async def websocket_endpoint(ws: WebSocket):
                     try:
                         import numpy as np  # type: ignore
                         import os
-                        import json
+                        import json as _json
 
                         # If client requested Sign-MNIST classifier, try that first (single-frame A–Y)
                         if use_signmnist:
@@ -446,7 +453,7 @@ async def websocket_endpoint(ws: WebSocket):
                                                 "r",
                                                 encoding="utf-8",
                                             ) as f:
-                                                SIGNMNIST_LABELS = json.load(f)
+                                                SIGNMNIST_LABELS = _json.load(f)
                                         except Exception:
                                             SIGNMNIST_LABELS = None
                             except Exception:

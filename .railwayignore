@@ -1,0 +1,23 @@
+# Ignore frontend and large local assets for backend deploy
+frontend/
+**/node_modules/
+**/.venv/
+**/venv/
+**/__pycache__/
+**/*.pyc
+
+# Training data and models (upload separately if needed)
+data/
+models/
+
+# VCS and metadata
+.git/
+.github/
+.gitignore
+.DS_Store
+
+# Tests and docs
+tests/
+docs/
+README.md
+DEPLOYMENT.md

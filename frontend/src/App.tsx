@@ -37,7 +37,8 @@ function TranslateWidget() {
     setError(null)
     setOut('')
     try {
-      const res = await fetch('/translate', {
+      const base = (import.meta as any).env.VITE_API_URL || ''
+      const res = await fetch(`${base || ''}/translate`.replace(/([^:]?)\/\//g, '$1/'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, source_lang: source, target_lang: target, model }),
@@ -262,10 +263,12 @@ export function App() {
   const [input, setInput] = useState('hello')
   const [connected, setConnected] = useState(false) // manually connect
   const [lang, setLang] = useState('en-US')
-  // Build WS URL dynamically so it works via Vite proxy in dev and same-origin in prod
-  const wsBase = 'ws://127.0.0.1:8000' // Direct backend connection
+  // Build URLs from environment for prod; fall back to localhost in dev
+  const API_URL = (import.meta as any).env.VITE_API_URL || ''
+  const WS_URL = (import.meta as any).env.VITE_WS_URL || ''
+  const wsBase = WS_URL || (location.protocol === 'https:' ? `wss://${location.host}` : `ws://${location.hostname}:8000`)
   // Force Sign-MNIST letter pipeline by default (A–Y static letters)
-  const url = connected ? `${wsBase}/ws?sign_model=signmnist` : null
+  const url = connected ? `${wsBase.replace(/\/$/, '')}/ws?sign_model=signmnist` : null
   const { messages, status, send, wsRef } = useWebSocket(url)
 
   // Theme management
@@ -482,7 +485,7 @@ export function App() {
           <div className="section" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             <input className="input" style={{ width: 80 }} value={collectLabel} onChange={(e) => setCollectLabel(e.target.value)} placeholder="Label" />
             <button className="button" onClick={() => setCollecting((v) => !v)} disabled={!camOn || status !== 'connected'}>{collecting ? 'Stop Collect' : 'Start Collect'}</button>
-            <button className="button" onClick={async () => { try { await fetch('/sign/static_train', { method: 'POST' }) } catch {} }}>Train Static</button>
+            <button className="button" onClick={async () => { try { const base = (import.meta as any).env.VITE_API_URL || ''; await fetch(`${base || ''}/sign/static_train`.replace(/([^:]?)\/\//g, '$1/'), { method: 'POST' }) } catch {} }}>Train Static</button>
           </div>
           <video ref={videoRef} className="video" muted playsInline></video>
           <div style={{ marginTop: 8 }}>
