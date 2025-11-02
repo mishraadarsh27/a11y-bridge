@@ -114,6 +114,12 @@ async def websocket_endpoint(ws: WebSocket):
     use_signmnist = sign_model == "signmnist"
     # Per-connection state (e.g., sliding window of keypoints)
     seq_buf: "deque[list[float]]" = deque(maxlen=30)
+    # Temporal smoothing for predictions - store last N predictions with scores
+    prediction_history: "deque[tuple[str, float]]" = deque(
+        maxlen=15
+    )  # Last 15 predictions
+    last_stable_prediction: Optional[tuple[str, float]] = None
+    prediction_stability_counter: int = 0
     try:
         while True:
             raw = await ws.receive_text()
@@ -292,8 +298,8 @@ async def websocket_endpoint(ws: WebSocket):
                         HANDS = mp.solutions.hands.Hands(
                             static_image_mode=False,
                             max_num_hands=2,
-                            min_detection_confidence=0.2,
-                            min_tracking_confidence=0.2,
+                            min_detection_confidence=0.5,  # Increased from 0.2 for better accuracy
+                            min_tracking_confidence=0.5,  # Increased from 0.2 for better accuracy
                         )
                     if HOLISTIC is None:
                         HOLISTIC = mp.solutions.holistic.Holistic(
@@ -301,8 +307,8 @@ async def websocket_endpoint(ws: WebSocket):
                             model_complexity=1,
                             enable_segmentation=False,
                             refine_face_landmarks=False,
-                            min_detection_confidence=0.2,
-                            min_tracking_confidence=0.2,
+                            min_detection_confidence=0.5,  # Increased from 0.2 for better accuracy
+                            min_tracking_confidence=0.5,  # Increased from 0.2 for better accuracy
                         )
 
                     data = SignFramePayload(**(msg.payload or {}))
@@ -512,7 +518,9 @@ async def websocket_endpoint(ws: WebSocket):
                                         score = (
                                             float(probs[ci]) if ci < len(probs) else 0.0
                                         )
-                                        sign_pred = {"label": label, "score": score}
+                                        # Only accept predictions with confidence >= 0.6
+                                        if score >= 0.6:
+                                            sign_pred = {"label": label, "score": score}
                                 except Exception:
                                     pass
 
@@ -719,6 +727,7 @@ async def websocket_endpoint(ws: WebSocket):
                                 s = sum(exps) + 1e-9
                                 probs = [v / s for v in exps]
                                 ci = int(max(range(len(probs)), key=lambda i: probs[i]))
+                                score = float(probs[ci])
                                 label = (
                                     CLASSIFIER_LABELS[ci]
                                     if (
@@ -727,7 +736,11 @@ async def websocket_endpoint(ws: WebSocket):
                                     )
                                     else str(ci)
                                 )
-                                sign_pred = {"label": label, "score": float(probs[ci])}
+                                # Only accept predictions with confidence >= 0.65
+                                if score >= 0.65 and label != "unknown":
+                                    sign_pred = {"label": label, "score": score}
+                                    # Add to prediction history for temporal smoothing
+                                    prediction_history.append((label, score))
                             elif TF_CLASSIFIER is not None and len(seq_buf) >= 30:
                                 # TF model expects (None, 30, 1662)
                                 x = np.asarray(list(seq_buf)[-30:], dtype=np.float32)[
@@ -735,6 +748,7 @@ async def websocket_endpoint(ws: WebSocket):
                                 ]  # (1, 30, 1662)
                                 probs = TF_CLASSIFIER.predict(x, verbose=0)[0].astype(float).tolist()  # type: ignore[attr-defined]
                                 ci = int(max(range(len(probs)), key=lambda i: probs[i]))
+                                score = float(probs[ci]) if ci < len(probs) else 0.0
                                 label = (
                                     CLASSIFIER_LABELS[ci]
                                     if (
@@ -743,8 +757,11 @@ async def websocket_endpoint(ws: WebSocket):
                                     )
                                     else str(ci)
                                 )
-                                score = float(probs[ci]) if ci < len(probs) else 0.0
-                                sign_pred = {"label": label, "score": score}
+                                # Only accept predictions with confidence >= 0.65
+                                if score >= 0.65 and label != "unknown":
+                                    sign_pred = {"label": label, "score": score}
+                                    # Add to prediction history for temporal smoothing
+                                    prediction_history.append((label, score))
                             else:
                                 # Heuristic mapping using current frame gesture
                                 g = gestures[0] if gestures else "unknown"
@@ -757,12 +774,81 @@ async def websocket_endpoint(ws: WebSocket):
                     except Exception as _:
                         pass
 
+                    # Apply temporal smoothing/filtering before sending
+                    if sign_pred is not None and len(prediction_history) >= 5:
+                        # Use majority vote from recent predictions for stability
+                        from collections import Counter
+
+                        recent_labels = [p[0] for p in list(prediction_history)[-5:]]
+                        label_counts = Counter(recent_labels)
+                        most_common_label, count = label_counts.most_common(1)[0]
+
+                        # Only update if same label appears at least 3 times in last 5 predictions
+                        if count >= 3:
+                            # Calculate average score for this label
+                            label_scores = [
+                                p[1]
+                                for p in prediction_history
+                                if p[0] == most_common_label
+                            ]
+                            avg_score = (
+                                sum(label_scores) / len(label_scores)
+                                if label_scores
+                                else sign_pred["score"]
+                            )
+
+                            # Update prediction with smoothed result
+                            if (
+                                most_common_label != last_stable_prediction[0]
+                                if last_stable_prediction
+                                else True
+                            ):
+                                prediction_stability_counter = 0
+                                last_stable_prediction = (most_common_label, avg_score)
+                                sign_pred = {
+                                    "label": most_common_label,
+                                    "score": avg_score,
+                                }
+                            else:
+                                prediction_stability_counter += 1
+                                # Only update if stable for at least 2 frames
+                                if prediction_stability_counter >= 2:
+                                    sign_pred = {
+                                        "label": most_common_label,
+                                        "score": avg_score,
+                                    }
+                                else:
+                                    # Keep using last stable prediction
+                                    if last_stable_prediction:
+                                        sign_pred = {
+                                            "label": last_stable_prediction[0],
+                                            "score": last_stable_prediction[1],
+                                        }
+                        else:
+                            # Not stable enough, use last stable prediction if available
+                            if last_stable_prediction:
+                                sign_pred = {
+                                    "label": last_stable_prediction[0],
+                                    "score": last_stable_prediction[1],
+                                }
+                            else:
+                                sign_pred = None
+                    elif sign_pred is not None and len(prediction_history) < 5:
+                        # Not enough history yet, but still use it if confident enough
+                        if sign_pred["score"] >= 0.7:
+                            last_stable_prediction = (
+                                sign_pred["label"],
+                                sign_pred["score"],
+                            )
+                        else:
+                            sign_pred = None
+
                     # Send minimal or detailed payload depending on mode
                     if simple_mode and sign_pred is not None:
                         label = str(sign_pred.get("label", "unknown"))
                         score = float(sign_pred.get("score", 0.0))
-                        # Only send confident, non-unknown predictions
-                        if label != "unknown" and score >= 0.5:
+                        # Only send confident, non-unknown predictions (increased threshold)
+                        if label != "unknown" and score >= 0.6:
                             await ws.send_text(
                                 json.dumps(
                                     ServerMessage(

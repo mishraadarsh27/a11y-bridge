@@ -10,5 +10,9 @@
   },
   "devDependencies": {
     "concurrently": "^9.0.1"
+  },
+  "dependencies": {
+    "@types/three": "^0.181.0",
+    "three": "^0.181.0"
   }
 }

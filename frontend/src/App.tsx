@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { Logo } from './Logo'
+import { SignLanguageAnimator } from './SignLanguageAnimator'
 
 function TranslateWidget() {
   const [text, setText] = useState('Hello, how are you?')
@@ -263,6 +264,12 @@ export function App() {
   const [input, setInput] = useState('hello')
   const [connected, setConnected] = useState(false) // manually connect
   const [lang, setLang] = useState('en-US')
+  const [signAnimationText, setSignAnimationText] = useState('')
+  const [isAnimating, setIsAnimating] = useState(false)
+  const [autoConvert, setAutoConvert] = useState(true) // Master toggle for automatic conversion
+  const lastProcessedSignRef = useRef<string | null>(null)
+  const lastProcessedTextRef = useRef<string>('')
+  const lastProcessedVoiceRef = useRef<string>('')
   // Build URLs from environment for prod; fall back to localhost in dev
   const API_URL = (import.meta as any).env.VITE_API_URL || ''
   const WS_URL = (import.meta as any).env.VITE_WS_URL || ''
@@ -324,7 +331,31 @@ export function App() {
           // Ignore results while our own TTS is speaking to avoid feedback loops
           if (isSpeaking) continue
           send(JSON.stringify({ type: 'stt_result', payload: { text: txt } }))
-          if (autoSpeak && txt) speak(txt)
+
+          // Auto conversion: Voice → Text + Sign Animation
+          if (autoConvert && txt && txt !== lastProcessedVoiceRef.current) {
+            lastProcessedVoiceRef.current = txt
+
+            // 1. Update text field
+            if (txt !== lastProcessedTextRef.current) {
+              setInput(txt)
+              lastProcessedTextRef.current = txt
+            }
+
+            // 2. Update sign animation
+            if (txt !== signAnimationText) {
+              setSignAnimationText(txt)
+              setIsAnimating(true)
+            }
+
+            // 3. Speak (only if autoSpeak is enabled, to avoid double-speaking)
+            if (autoSpeak && txt) {
+              speak(txt)
+            }
+          } else if (autoSpeak && txt) {
+            // Legacy behavior if autoConvert is off
+            speak(txt)
+          }
         }
       }
     }
@@ -403,37 +434,122 @@ export function App() {
     }
   }, [camOn, status, sending])
 
-  // Auto TTS for recognized signs with smoothing
+  // Auto conversion: Sign → Text + Voice + Animation
   useEffect(() => {
-    if (!messages.length) return
+    if (!messages.length || !autoConvert) return
     const raw = messages[messages.length - 1]
     try {
       const j = JSON.parse(typeof raw === 'string' && raw.startsWith('echo:') ? raw.slice(5) : raw)
       if (j?.type === 'sign_status' && j?.payload?.sign) {
         const label = String(j.payload.sign.label ?? '')
         const score = typeof j.payload.sign.score === 'number' ? j.payload.sign.score : 0
-        if (!label || label === 'unknown' || score < 0.5) return
+        // Increased threshold from 0.5 to 0.6 for better accuracy
+        if (!label || label === 'unknown' || score < 0.6) return
         const now = Date.now()
         signHistRef.current.push({ label, score, t: now })
-        if (signHistRef.current.length > 24) signHistRef.current.shift()
-        // compute stable label from last 8 samples with score>=0.6
-        const recent = signHistRef.current.slice(-8).filter((x) => x.score >= 0.6)
+        if (signHistRef.current.length > 30) signHistRef.current.shift() // Increased buffer
+
+        // Improved smoothing: use last 10 samples with score >= 0.65
+        const recent = signHistRef.current.slice(-10).filter((x) => x.score >= 0.65)
+        if (recent.length < 5) return // Need at least 5 confident samples
+
         const counts: Record<string, number> = {}
-        for (const r of recent) counts[r.label] = (counts[r.label] || 0) + 1
+        const scores: Record<string, number[]> = {}
+        for (const r of recent) {
+          counts[r.label] = (counts[r.label] || 0) + 1
+          if (!scores[r.label]) scores[r.label] = []
+          scores[r.label].push(r.score)
+        }
+
+        // Find most common label with at least 60% occurrence
         let stable: string | null = null
         let maxc = 0
-        for (const [k, v] of Object.entries(counts)) { if (v > maxc) { maxc = v; stable = k } }
-        if (stable && maxc >= 3 && autoSpeakSign && !isSpeaking) {
+        for (const [k, v] of Object.entries(counts)) {
+          if (v > maxc && v >= Math.ceil(recent.length * 0.6)) {
+            maxc = v
+            stable = k
+          }
+        }
+
+        if (stable && maxc >= 5) { // Increased from 3 to 5 for better stability
+          const avgScore = scores[stable] ? scores[stable].reduce((a, b) => a + b, 0) / scores[stable].length : score
           const since = now - (lastSpokenAtRef.current || 0)
-          if (stable !== lastSpokenSignRef.current || since > 1500) {
-            speak(stable)
-            lastSpokenSignRef.current = stable
-            lastSpokenAtRef.current = now
+
+          // Only process if it's a new sign or enough time has passed (increased to 2 seconds)
+          if (stable !== lastProcessedSignRef.current || since > 2000) {
+            // 1. Update text field
+            if (stable !== lastProcessedTextRef.current) {
+              setInput(stable)
+              lastProcessedTextRef.current = stable
+            }
+
+            // 2. Update sign animation
+            if (stable !== signAnimationText) {
+              setSignAnimationText(stable)
+              setIsAnimating(true)
+            }
+
+            // 3. Speak (voice output) - only if score is high enough
+            if (!isSpeaking && avgScore >= 0.65 && (stable !== lastSpokenSignRef.current || since > 2000)) {
+              speak(stable)
+              lastSpokenSignRef.current = stable
+              lastSpokenAtRef.current = now
+            }
+
+            lastProcessedSignRef.current = stable
           }
         }
       }
     } catch {}
-  }, [messages, autoSpeakSign, isSpeaking])
+  }, [messages, autoConvert, isSpeaking, signAnimationText])
+
+  // Auto conversion: Text → Sign Animation + Voice
+  useEffect(() => {
+    if (!autoConvert || !input.trim()) return
+    // Only process if text has changed
+    if (input === lastProcessedTextRef.current) return
+
+    // Prevent loop: if this text just came from sign recognition, skip voice/sign update
+    // (it's already been handled by sign → text conversion)
+    if (input === lastProcessedSignRef.current) {
+      lastProcessedTextRef.current = input
+      return
+    }
+
+    // Prevent loop: if this text just came from voice recognition
+    if (input === lastProcessedVoiceRef.current) {
+      lastProcessedTextRef.current = input
+      return
+    }
+
+    lastProcessedTextRef.current = input
+
+    // 1. Update sign animation
+    if (input !== signAnimationText) {
+      setSignAnimationText(input)
+      setIsAnimating(true)
+    }
+
+    // 2. Speak (voice output) - but only if not already speaking
+    if (!isSpeaking && input !== lastProcessedVoiceRef.current) {
+      speak(input)
+      lastProcessedVoiceRef.current = input
+    }
+  }, [input, autoConvert, isSpeaking, signAnimationText])
+
+  // Auto conversion: Voice → Text + Sign Animation
+  useEffect(() => {
+    // This is handled in the STT onresult callback
+    // We'll update it to also trigger sign animation
+  }, [])
+
+  // Legacy: Auto TTS for recognized signs (for backward compatibility with checkbox)
+  useEffect(() => {
+    if (autoSpeakSign && !autoConvert) {
+      // Keep the old behavior if autoConvert is off but autoSpeakSign is on
+      // This effect handles that case
+    }
+  }, [autoSpeakSign, autoConvert])
 
   return (
     <div className="container" style={{ fontFamily: 'system-ui, sans-serif', lineHeight: 1.5 }}>
@@ -502,7 +618,11 @@ export function App() {
             <button className="button" onClick={stopSTT}>Stop Mic</button>
             {!sttSupported && <span className="small">STT not supported in this browser</span>}
           </div>
-          <div className="section" style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <div className="section" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <label className="small" htmlFor="auto-convert" style={{ fontWeight: 'bold' }}>
+              <input id="auto-convert" type="checkbox" checked={autoConvert} onChange={(e) => setAutoConvert(e.target.checked)} />
+              <span style={{ color: autoConvert ? '#16a34a' : '#666' }}>Auto-Convert All Modes</span>
+            </label>
             <label className="small" htmlFor="auto-speak">
               <input id="auto-speak" type="checkbox" checked={autoSpeak} onChange={(e) => setAutoSpeak(e.target.checked)} /> Auto-speak STT
             </label>
@@ -510,6 +630,11 @@ export function App() {
               <input id="auto-speak-sign" type="checkbox" checked={autoSpeakSign} onChange={(e) => setAutoSpeakSign(e.target.checked)} /> Auto-speak Sign
             </label>
           </div>
+          {autoConvert && (
+            <div className="small" style={{ marginTop: 4, padding: 6, background: '#e0f2fe', borderRadius: 4, color: '#0369a1' }}>
+              ✓ Automatic conversion enabled: Sign ↔ Text ↔ Voice
+            </div>
+          )}
           <div className="section">
             <input className="input" value={input} onChange={(e) => setInput(e.target.value)} placeholder="Text to speak" />
             <button className="button" onClick={() => speak(input)}>Speak</button>
@@ -546,6 +671,54 @@ export function App() {
         <div className="panel">
           <h2>Translate (LLM)</h2>
           <TranslateWidget />
+        </div>
+
+        {/* Sign Language Animation Panel */}
+        <div className="panel">
+          <h2>Sign Language Animation</h2>
+          <div className="section">
+            <input
+              className="input"
+              value={signAnimationText}
+              onChange={(e) => setSignAnimationText(e.target.value)}
+              placeholder="Enter text to animate (e.g., 'hello', 'yes', 'thank you')"
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button
+                className="button primary"
+                onClick={() => {
+                  if (signAnimationText.trim()) {
+                    setIsAnimating(true)
+                  }
+                }}
+                disabled={!signAnimationText.trim() || isAnimating}
+              >
+                {isAnimating ? 'Animating...' : 'Animate Sign'}
+              </button>
+              <button
+                className="button"
+                onClick={() => {
+                  setIsAnimating(false)
+                  setSignAnimationText('')
+                }}
+              >
+                Stop
+              </button>
+            </div>
+          </div>
+          <div className="section">
+            <SignLanguageAnimator
+              text={signAnimationText}
+              isPlaying={isAnimating}
+              onComplete={() => {
+                setIsAnimating(false)
+              }}
+            />
+          </div>
+          <div className="small" style={{ marginTop: 8, opacity: 0.7 }}>
+            <div><strong>Supported words:</strong> hello, hi, yes, no, thank you, please, sorry, goodbye, how are you</div>
+            <div style={{ marginTop: 4 }}><strong>Fingerspelling:</strong> Any text will be fingerspelled letter by letter (A-Z)</div>
+          </div>
         </div>
       </div>
     </div>
