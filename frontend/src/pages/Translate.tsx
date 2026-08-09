@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 
+const API_BASE = (import.meta as any).env.VITE_API_URL || 'http://localhost:8000'
+
 export function Translate() {
   const [text, setText] = useState('Hello, how are you?')
   const [source, setSource] = useState('auto')
@@ -18,14 +20,14 @@ export function Translate() {
   const doTranslate = async () => {
     setLoading(true); setError(null); setOut('')
     try {
-      const res = await fetch('http://localhost:8000/translate', {
+      const res = await fetch(`${API_BASE}/translate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, source_lang: source, target_lang: target }),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       setOut(data?.translated ?? '')
-    } catch (e: any) { setError(e?.message || 'Failed — kya Ollama chal raha hai?') }
+    } catch (e: any) { setError(e?.message || 'Failed — Ollama local machine par hi chalta hai') }
     finally { setLoading(false) }
   }
   const copy = () => { navigator.clipboard?.writeText(out); setCopied(true); setTimeout(() => setCopied(false), 1500) }

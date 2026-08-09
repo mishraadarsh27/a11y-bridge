@@ -1,7 +1,7 @@
 fastapi
 uvicorn[standard]
 numpy
-opencv-python
+opencv-python-headless
 mediapipe
 httpx
 pydantic

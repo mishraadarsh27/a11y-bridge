@@ -26,7 +26,7 @@ export function Bridge() {
   const lastSignRef = useRef<string | null>(null)
   const lastVoiceRef = useRef('')
 
-  const wsBase = location.protocol === 'https:' ? `wss://${location.host}` : 'ws://localhost:8000'
+  const wsBase = (import.meta as any).env.VITE_WS_URL || 'ws://localhost:8000'
   const url = connected ? `${wsBase}/ws` : null
 
   const addHistory = (type: string, text: string) => setHistory(h => [...h, { type, text, time: new Date().toLocaleTimeString() }])
@@ -147,8 +147,8 @@ export function Bridge() {
             <div className="bar"><i style={{ width: `${signScore * 100}%` }} /></div>
             <div className="cam-tools">
               <button className="tool" title="Camera on/off" onClick={() => setCamOn(v => !v)}>📷</button>
-              <button className="tool" title="Turbo mode (fast detection)" onClick={() => setTurbo(v => !v)} style={turbo ? { color: '#fbbf24', borderColor: 'rgba(251,191,36,.5)' } : {}}>⚡</button>
-              <button className="tool" title="Brightness boost" onClick={() => setBright(v => !v)} style={bright ? { color: '#fde047' } : {}}>☀️</button>
+              <button className="tool" title="Turbo mode" onClick={() => setTurbo(v => !v)} style={turbo ? { color: '#fbbf24', borderColor: 'rgba(251,191,36,.5)' } : {}}>⚡</button>
+              <button className="tool" title="Brightness" onClick={() => setBright(v => !v)} style={bright ? { color: '#fde047' } : {}}>☀️</button>
               <button className="tool" title="Fullscreen" onClick={goFullscreen}>⛶</button>
             </div>
             <canvas ref={canvasRef} style={{ display: 'none' }} />
@@ -202,8 +202,8 @@ export function Bridge() {
             </div>
             <SignLanguageAnimator text={animText} isPlaying={animating} onComplete={() => setAnimating(false)} />
             <div style={{ display: 'grid', gap: 10 }}>
-              <select className="select"><option>View: 2D Skeleton</option></select>
-              <select className="select"><option>Speed: Normal</option><option>Speed: Slow</option><option>Speed: Fast</option></select>
+              <select className="select"><option>View: Real Hands</option></select>
+              <select className="select"><option>Speed: Normal</option></select>
               <div className="row" style={{ justifyContent: 'center' }}>
                 <button className="icon-btn">⏮</button>
                 <button className="icon-btn" onClick={() => setAnimating(v => !v)}>{animating ? '⏸' : '▶'}</button>
