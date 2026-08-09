@@ -20,15 +20,25 @@ export function Translate() {
   const doTranslate = async () => {
     setLoading(true); setError(null); setOut('')
     try {
+      // Pehle backend (Ollama) try karo
       const res = await fetch(`${API_BASE}/translate`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text, source_lang: source, target_lang: target }),
       })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) throw new Error('backend')
       const data = await res.json()
       setOut(data?.translated ?? '')
-    } catch (e: any) { setError(e?.message || 'Failed — Ollama local machine par hi chalta hai') }
-    finally { setLoading(false) }
+    } catch {
+      try {
+        // FREE fallback: MyMemory translation API (bina Ollama ke bhi chalega)
+        const src = source === 'auto' ? 'en' : source
+        const r = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${src}|${target}`)
+        const j = await r.json()
+        const tr = j?.responseData?.translatedText
+        if (!tr) throw new Error('failed')
+        setOut(tr)
+      } catch { setError('Translation failed — internet/backend check karo') }
+    } finally { setLoading(false) }
   }
   const copy = () => { navigator.clipboard?.writeText(out); setCopied(true); setTimeout(() => setCopied(false), 1500) }
 
@@ -36,7 +46,7 @@ export function Translate() {
     <div className="page-wrap">
       <div className="page-head">
         <h1 className="page-title grad-text">LLM Translate</h1>
-        <p className="page-sub">Multilingual translation powered by local Ollama.</p>
+        <p className="page-sub">Multilingual translation — Ollama + free cloud fallback.</p>
       </div>
       <div className="tool-card">
         <div className="row" style={{ marginBottom: 14 }}>

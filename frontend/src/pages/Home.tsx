@@ -1,38 +1,38 @@
 import React from 'react'
 import { Link } from 'react-router-dom'
+import { useLang } from '../LangContext'
 
-const features = [
-  { icon: '🤟', title: 'Sign to Text & Speech', desc: 'Real-time sign language detection and conversion to text and speech.' },
-  { icon: '🎤', title: 'Speech to Sign & Text', desc: 'Convert spoken words into sign language animations and readable text.' },
-  { icon: '🖐️', title: 'Sign Animator', desc: 'AI-powered avatar animations for smooth sign language delivery.' },
-  { icon: '🌐', title: 'Multi-language Support', desc: 'Communicate across languages with smart translation and localization.' },
-  { icon: '💬', title: 'Conversation History', desc: 'Save, review, and manage your conversations securely.' },
-  { icon: '⚡', title: 'Real-time & Offline', desc: 'Lightning-fast responses with offline mode for seamless communication.' },
-]
-const steps = [
-  { n: '1', cls: 'n1', icon: '🎥', title: 'Choose Your Input', desc: 'Use sign language, speech, or text to start the conversation.' },
-  { n: '2', cls: 'n2', icon: '🧠', title: 'AI Processes Instantly', desc: 'Our AI understands and converts your input in real-time.' },
-  { n: '3', cls: 'n3', icon: '🖥️', title: 'Get Connected', desc: 'Receive output as sign animation, speech, or text — instantly.' },
-]
+const ICONS = ['🤟', '', '️', '', '💬', '']
 
 export function Home() {
+  const { t } = useLang()
+  const features = [1, 2, 3, 4, 5, 6].map(n => ({ icon: ICONS[n - 1], title: t(`f${n}t`), desc: t(`f${n}d`) }))
+  const steps = [
+    { n: '1', cls: 'n1', icon: '🎥', title: t('s1t'), desc: t('s1d') },
+    { n: '2', cls: 'n2', icon: '🧠', title: t('s2t'), desc: t('s2d') },
+    { n: '3', cls: 'n3', icon: '🖥️', title: t('s3t'), desc: t('s3d') },
+  ]
+
   return (
     <div>
       <section className="hero">
         <div className="hero-inner">
           <div>
-            <div className="hero-badge">👥 Accessibility-First Communication</div>
-            <h1>Breaking Barriers Between<br /><span className="grad-text">Sign, Speech & Text</span></h1>
-            <p>CommuniBridge is a real-time, multilingual platform that connects deaf, mute and speech-impaired individuals with everyone.</p>
+            <div className="hero-badge">👥 {t('heroBadge')}</div>
+            <h1>{t('heroT1')}<br /><span className="grad-text">{t('heroT2')}</span></h1>
+            <p>{t('heroSub')}</p>
             <div className="row">
-              <Link to="/bridge" className="btn btn-grad">🚀 Launch Live Bridge</Link>
-              <Link to="/animator" className="btn btn-ghost">▶ Try Sign Animator</Link>
+              <Link to="/bridge" className="btn btn-grad">{t('launch')}</Link>
+              <Link to="/animator" className="btn btn-ghost">{t('tryAnim')}</Link>
             </div>
           </div>
-          <div className="listen-card">
-            <div className="wave">{Array.from({ length: 28 }).map((_, i) => <i key={i} style={{ animationDelay: `${i * 0.06}s` }} />)}</div>
-            <div style={{ fontWeight: 700 }}>Listening...</div>
-            <div className="small" style={{ color: 'var(--green)', marginTop: 6 }}>● Converting to Sign</div>
+          <div className="hero-media">
+            <img className="hero-img" src="/hero.png" alt="Person using sign language" onError={e => { e.currentTarget.style.display = 'none' }} />
+            <div className="listen-card">
+              <div className="wave">{Array.from({ length: 24 }).map((_, i) => <i key={i} style={{ animationDelay: `${i * 0.06}s` }} />)}</div>
+              <div style={{ fontWeight: 700 }}>{t('listening')}</div>
+              <div className="small" style={{ color: 'var(--green)', marginTop: 6 }}>{t('converting')}</div>
+            </div>
           </div>
         </div>
       </section>
@@ -44,7 +44,7 @@ export function Home() {
       </section>
 
       <section className="how">
-        <h2 className="sec-title">How It Works</h2>
+        <h2 className="sec-title">{t('howTitle')}</h2>
         <div className="sec-underline" />
         <div className="steps">
           {steps.map(s => (
