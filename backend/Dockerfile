@@ -2,10 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# MediaPipe/OpenCV ke liye system libraries
+# MediaPipe/OpenCV ke liye saari system libraries
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
+    libgles2 \
     libglib2.0-0 \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

@@ -3,10 +3,10 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock
 
-# 🛡️ FIX: Block broken global TensorFlow/JAX from crashing MediaPipe
-sys.modules['tensorflow'] = MagicMock()
-sys.modules['tensorflow.tools'] = MagicMock()
-sys.modules['tensorflow.tools.docs'] = MagicMock()
+# 🛡️ Local broken TensorFlow se bachav (Render par TF hai hi nahi, harmless)
+sys.modules.setdefault('tensorflow', MagicMock())
+sys.modules.setdefault('tensorflow.tools', MagicMock())
+sys.modules.setdefault('tensorflow.tools.docs', MagicMock())
 
 import json
 import os
@@ -78,12 +78,12 @@ def get_gesture(landmarks) -> tuple[str, float]:
     
     extended = []
     for tip, pip in zip(tips, pips):
-        if tip == 4: # Thumb logic
+        if tip == 4:
             dist_tip = math.hypot(landmarks[tip].x - landmarks[0].x, landmarks[tip].y - landmarks[0].y)
             dist_pip = math.hypot(landmarks[pip].x - landmarks[0].x, landmarks[pip].y - landmarks[0].y)
             if dist_tip > dist_pip * 1.1: extended.append(1)
             else: extended.append(0)
-        else: # Finger logic
+        else:
             if landmarks[tip].y < landmarks[pip].y: extended.append(1)
             else: extended.append(0)
                 
@@ -106,12 +106,14 @@ async def websocket_endpoint(ws: WebSocket):
             from mediapipe.python.solutions.hands import Hands
             HANDS = Hands(
                 static_image_mode=False,
-                max_num_hands=2,
-                min_detection_confidence=0.7,
-                min_tracking_confidence=0.7,
+                max_num_hands=1,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5,
+                model_complexity=0,
             )
-        except ImportError:
-            logger.error("MediaPipe not installed!")
+            logger.info("[WS] MediaPipe Hands loaded successfully!")
+        except Exception as e:
+            logger.error(f"MediaPipe load failed: {type(e).__name__}: {e}")
             await ws.close()
             return
 
